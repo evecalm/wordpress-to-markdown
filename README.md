@@ -1,4 +1,25 @@
-#wordpress-to-markdown
+# wordpress-to-markdown
+Auto convert all wordpress posts(pages will be ignored) into markdown files.
+## usage
+
+```
+node convert.js <wordpress-backup-xml-path>
+```
+
+This will generate md files into the folder of **posts** within the same directory of the xml file, like
+
+```
+posts/2013-05-how-to-ski.md
+posts/2015-12-goodbye.md
+```
+
+
+This script is modified from <https://github.com/ytechie/wordpress-to-markdown> by @ytechie . 
+
+
+
+
+## Orginal readme by @ytechie
 
 This script uses the standard exported XML file from WordPress, and creates a folder/file structure that contains all of the blog posts, converted to markdown format. It will also download all of the images.
 

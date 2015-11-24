@@ -1,5 +1,6 @@
 var xml2js = require('xml2js');
 var fs = require('fs');
+var mkdirp = require('mkdirp');
 var util = require('util');
 var toMarkdown = require('to-markdown');
 var http = require('http');
@@ -7,8 +8,11 @@ var http = require('http');
 processExport();
 
 function processExport() {
+	var args = process.argv.slice(2);
 	var parser = new xml2js.Parser();
-	fs.readFile('export.xml', function(err, data) {
+	mkdirp.sync('posts');
+
+	fs.readFile(args[0], function(err, data) {
 		if(err) {
 			console.log('Error: ' + err);
 		}
@@ -26,6 +30,8 @@ function processExport() {
 			fs.mkdir('out', function() {
 		        for(var i = 0; i < posts.length; i++) {
 	        		processPost(posts[i]);
+
+	        		// if(i == 10) return;
 		        	//console.log(util.inspect(posts[i]));
 		        }
 			});
@@ -34,103 +40,78 @@ function processExport() {
 }
 
 function processPost(post) {
-	console.log('Processing Post');
-
-	var postTitle = post.title;
-	console.log('Post title: ' + postTitle);
-	var postDate = new Date(post.pubDate);
-	console.log('Post Date: ' + postDate);
-	var postData = post['content:encoded'][0];
-	console.log('Post length: ' + postData.length + ' bytes');
-	var slug = post['wp:post_name'];
-	console.log('Post slug: ' + slug);
-
-	//Merge categories and tags into tags
-	var categories = [];
-	if (post.category != undefined) {
-		for(var i = 0; i < post.category.length; i++) {
-			var cat = post.category[i]['_'];
-			if(cat != "Uncategorized")
-				categories.push(cat);
-			//console.log('CATEGORY: ' + util.inspect(post.category[i]['_']));
-		}
+	// 只处理文章类型
+	if (post['wp:post_type'].toString() !== 'post') {
+		return;
 	}
 
-	var fullPath = 'out\\' + postDate.getFullYear() + '\\' + getPaddedMonthNumber(postDate.getMonth() + 1) + '\\' + slug;
+	var filePath = 'posts/' + formatTime(post.pubDate, 'yyyy-MM-') + post.title + '.md';
+	var postData = post['content:encoded'][0];
 
-	fs.mkdir('out\\' + postDate.getFullYear(), function() {
-		fs.mkdir('out\\' + postDate.getFullYear() + '\\' + getPaddedMonthNumber(postDate.getMonth() + 1), function() {
-			fs.mkdir(fullPath, function() {
-				//Find all images
-				var patt = new RegExp("(?:src=\"(.*?)\")", "gi");
-				
-				var m;
-				var matches = [];
-				while((m = patt.exec(postData)) !== null) {
-					matches.push(m[1]);
-					//console.log("Found: " + m[1]);
-				}
-
-
-				if(matches != null && matches.length > 0) {
-					for(var i = 0; i < matches.length; i++) {
-						//console.log('Post image found: ' + matches[i])
-
-						var url = matches[i];
-						var urlParts = matches[i].split('/');
-						var imageName = urlParts[urlParts.length - 1];
-
-						var filePath = fullPath + '\\' + imageName;
-
-						downloadFile(url, filePath);
-
-						//Make the image name local relative in the markdown
-						postData = postData.replace(url, imageName);
-						//console.log('Replacing ' + url + ' with ' + imageName);
-					}
-				}
-
-				var markdown = toMarkdown.toMarkdown(postData);
-
-				//Fix characters that markdown doesn't like
-				// smart single quotes and apostrophe
-    			markdown = markdown.replace(/[\u2018|\u2019|\u201A]/g, "\'");
-    			// smart double quotes
-    			markdown = markdown.replace(/&quot;/g, "\"");
-    			markdown = markdown.replace(/[\u201C|\u201D|\u201E]/g, "\"");
-				// ellipsis
-				markdown = markdown.replace(/\u2026/g, "...");
-				// dashes
-				markdown = markdown.replace(/[\u2013|\u2014]/g, "-");
-				// circumflex
-				markdown = markdown.replace(/\u02C6/g, "^");
-				// open angle bracket
-				markdown = markdown.replace(/\u2039/g, "<");
-				markdown = markdown.replace(/&lt;/g, "<");
-				// close angle bracket
-				markdown = markdown.replace(/\u203A/g, ">");
-				markdown = markdown.replace(/&gt;/g, ">");
-				// spaces
-				markdown = markdown.replace(/[\u02DC|\u00A0]/g, " ");
-				// ampersand
-				markdown = markdown.replace(/&amp;/g, "&");
-
-				var header = "";
-				header += "---\n";
-				header += "layout: post\n";
-				header += "title: " + postTitle + "\n";
-				header += "date: " + postDate.getFullYear() + '-' + getPaddedMonthNumber(postDate.getMonth() + 1) + '-' + getPaddedDayNumber(postDate.getDate()) + "\n";
-				if(categories.length > 0)
-					header += "tags: " + JSON.stringify(categories) + '\n';
-				header += "---\n";
-				header += "\n";
-
-				fs.writeFile(fullPath + '\\index.html.md', header + markdown, function(err) {
-
-				});
-			});
-		});		
+	var markdown = toMarkdown.toMarkdown(postData, {
+		gfm: true
 	});
+
+	//Fix characters that markdown doesn't like
+	// smart single quotes and apostrophe
+	markdown = markdown.replace(/[\u2018|\u2019|\u201A]/g, "\'");
+	// smart double quotes
+	markdown = markdown.replace(/&quot;/g, "\"");
+	markdown = markdown.replace(/[\u201C|\u201D|\u201E]/g, "\"");
+	// ellipsis
+	markdown = markdown.replace(/\u2026/g, "...");
+	// dashes
+	markdown = markdown.replace(/[\u2013|\u2014]/g, "-");
+	// circumflex
+	markdown = markdown.replace(/\u02C6/g, "^");
+	// open angle bracket
+	markdown = markdown.replace(/\u2039/g, "<");
+	markdown = markdown.replace(/&lt;/g, "<");
+	// close angle bracket
+	markdown = markdown.replace(/\u203A/g, ">");
+	markdown = markdown.replace(/&gt;/g, ">");
+	// spaces
+	markdown = markdown.replace(/[\u02DC|\u00A0]/g, " ");
+	// ampersand
+	markdown = markdown.replace(/&amp;/g, "&");
+
+	var content = getBlogMetaInfo(post) + markdown;
+
+	// console.log('content: ' + content);
+
+	fs.writeFile(filePath, content, function(err) {
+		err && console.log('failed to output file: ' + filePath + ', message: ' + err.message);
+	});
+}
+
+function getTagCat (cats) {
+	var c = [], t = [], r = [];
+	if (!cats) return r;
+	for (var i = 0; i < cats.length; i++) {
+		var cat = cats[i];
+		if (cat.$.domain == 'category') {
+			c.push(cat._);
+		} else {
+			t.push(cat._);
+		}
+	}
+	if (c.length) {
+		r.push( 'categories: \n - ' + c.join('\n - ') );
+	}
+	if (t.length) {
+		r.push( 'tags: \n - ' + t.join('\n - ') );
+	}
+	return r;
+}
+
+function getBlogMetaInfo (post) {
+	var metaInfo =[
+    'title: "' + post.title + '"',
+    'date: ' + formatTime(post.pubDate),
+    'uri: ' + post['wp:post_name']
+  ];
+  metaInfo = metaInfo.concat(getTagCat(post.category));
+  return metaInfo.join('\n') + '\n---\n\n';
 }
 
 function downloadFile(url, path) {
@@ -157,16 +138,50 @@ function downloadFile(url, path) {
 	  console.log ('passing on: ' + url + ' ' + url.indexOf('https:')); 
 	}
 }
-function getPaddedMonthNumber(month) {
-	if(month < 10)
-		return "0" + month;
-	else
-		return month;
+
+function formatTime (timeStamp, format) {
+  var D, H, M, m, ms, s, t, tt;
+  if (format == null) {
+    format = 'yyyy-MM-dd hh:mm:ss';
+  }
+  t = new Date(timeStamp);
+  if (!format || isNaN(t.valueOf())) {
+    return '';
+  }
+  M = t.getMonth() + 1;
+  D = t.getDate();
+  H = t.getHours();
+  m = t.getMinutes();
+  s = t.getSeconds();
+  ms = t.getMilliseconds();
+  tt = {
+    yy: prefix0(t.getYear() % 100),
+    yyyy: t.getFullYear(),
+    MM: prefix0(M),
+    M: M,
+    dd: prefix0(D),
+    d: D,
+    hh: prefix0(H),
+    h: H,
+    mm: prefix0(m),
+    m: m,
+    ss: prefix0(s),
+    s: s,
+    ms: ms
+  };
+  return format.replace(/[a-z]+/ig, function($0) {
+    var _ref;
+    return (_ref = tt[$0]) != null ? _ref : $0;
+  });
 }
 
-function getPaddedDayNumber(day) {
-	if(day < 10)
-		return "0" + day;
-	else
-		return day;
+function prefix0 (n, len) {
+  if (len == null) {
+    len = 2;
+  }
+  n = "" + n;
+  if (n.length < len) {
+    n = Array(len - n.length + 1).join('0') + n;
+  }
+  return n;
 }
